@@ -169,9 +169,6 @@ func LoadNetConf(bytes []byte) (*NetConf, error) {
 	// the master plugin. Kubernetes CRD delegates are then appended to
 	// the existing delegate list and all delegates executed in-order.
 
-	if len(netconf.RawDelegates) == 0 {
-		return nil, logging.Errorf("at least one delegate must be specified")
-	}
 
 	if netconf.CNIDir == "" {
 		netconf.CNIDir = defaultCNIDir
@@ -185,21 +182,23 @@ func LoadNetConf(bytes []byte) (*NetConf, error) {
 		netconf.BinDir = defaultBinDir
 	}
 
-	for idx, rawConf := range netconf.RawDelegates {
-		bytes, err := json.Marshal(rawConf)
-		if err != nil {
-			return nil, logging.Errorf("error marshalling delegate %d config: %v", idx, err)
+	if (len(netconf.RawDelegates) != 0) {
+		for idx, rawConf := range netconf.RawDelegates {
+			bytes, err := json.Marshal(rawConf)
+			if err != nil {
+				return nil, logging.Errorf("error marshalling delegate %d config: %v", idx, err)
+			}
+			delegateConf, err := LoadDelegateNetConf(bytes, "")
+			if err != nil {
+				return nil, logging.Errorf("failed to load delegate %d config: %v", idx, err)
+			}
+			netconf.Delegates = append(netconf.Delegates, delegateConf)
 		}
-		delegateConf, err := LoadDelegateNetConf(bytes, "")
-		if err != nil {
-			return nil, logging.Errorf("failed to load delegate %d config: %v", idx, err)
-		}
-		netconf.Delegates = append(netconf.Delegates, delegateConf)
+
+		// First delegate is always the master plugin
+		netconf.Delegates[0].MasterPlugin = true
 	}
 	netconf.RawDelegates = nil
-
-	// First delegate is always the master plugin
-	netconf.Delegates[0].MasterPlugin = true
 
 	return netconf, nil
 }

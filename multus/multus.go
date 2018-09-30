@@ -227,6 +227,13 @@ func cmdAdd(args *skel.CmdArgs, exec invoke.Exec, kubeClient k8s.KubeClient) (cn
 		return nil, logging.Errorf("Multus: Err in getting k8s args: %v", err)
 	}
 
+	if (len(n.Delegates) == 0) {
+		_, err := k8s.TryLoadK8sClusterDefaultNetwork(k8sArgs, n, kubeClient)
+		if err != nil {
+			return nil, logging.Errorf("Multus: Err in loading K8s default network. Default network must be either set in CNI config file or in CRD object defaultNetwork k8s args: %v", err)
+		}
+	}
+
 	numK8sDelegates, kc, err := k8s.TryLoadK8sDelegates(k8sArgs, n, kubeClient)
 	if err != nil {
 		return nil, logging.Errorf("Multus: Err in loading K8s Delegates k8s args: %v", err)
@@ -285,7 +292,7 @@ func cmdAdd(args *skel.CmdArgs, exec invoke.Exec, kubeClient k8s.KubeClient) (cn
 			}
 		}
 	}
-
+	
 	return result, nil
 }
 
@@ -327,6 +334,13 @@ func cmdDel(args *skel.CmdArgs, exec invoke.Exec, kubeClient k8s.KubeClient) err
 	k8sArgs, err := k8s.GetK8sArgs(args)
 	if err != nil {
 		return logging.Errorf("Multus: Err in getting k8s args: %v", err)
+	}
+
+	if (len(in.Delegates) == 0) {
+		_, err := k8s.TryLoadK8sClusterDefaultNetwork(k8sArgs, in, kubeClient)
+		if err != nil {
+			return logging.Errorf("Multus: Err in loading K8s default network. Default network must be either set in CNI config file or in CRD object defaultNetwork k8s args: %v", err)
+		}
 	}
 
 	numK8sDelegates, kc, err := k8s.TryLoadK8sDelegates(k8sArgs, in, kubeClient)

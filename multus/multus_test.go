@@ -306,4 +306,127 @@ var _ = Describe("multus operations", func() {
 		// plugin 1 is the masterplugin
 		Expect(reflect.DeepEqual(r, expectedResult1)).To(BeTrue())
 	})
+
+	It("executes kubernetes default network when delegates is absent", func() {
+		fakePod := testhelpers.NewFakePod("testpod", "")
+		args := &skel.CmdArgs{
+			ContainerID: "123456789",
+			Netns:       testNS.Path(),
+			Args:        fmt.Sprintf("K8S_POD_NAME=%s;K8S_POD_NAMESPACE=%s", fakePod.ObjectMeta.Name, fakePod.ObjectMeta.Namespace),
+			IfName:      "eth0",
+			StdinData: []byte(`{
+    "name": "node-cni-network",
+	"type": "multus",
+	"kubeconfig": "/etc/kubernetes/node-kubeconfig.yaml"
+}`)}
+		fExec := &fakeExec{}
+		expectedResult1 := &types020.Result{
+			CNIVersion: "0.2.0",
+			IP4: &types020.IPConfig{
+				IP: *testhelpers.EnsureCIDR("1.1.1.2/24"),
+			},
+		}
+		expectedConf1 := `{
+    "name": "weave1",
+    "cniVersion": "0.2.0",
+    "type": "weave-net"
+}`
+		fExec.addPlugin(nil, "eth0", expectedConf1, expectedResult1, nil)
+
+		fKubeClient := testhelpers.NewFakeKubeClient()
+		fKubeClient.AddPod(fakePod)
+		fKubeClient.AddNetConfig(fakePod.ObjectMeta.Namespace, "weave1", expectedConf1)
+		fKubeClient.AddDefaultNet(fakePod.ObjectMeta.Namespace, "weave1")
+
+		os.Setenv("CNI_COMMAND", "ADD")
+		os.Setenv("CNI_IFNAME", "eth0")
+		result, err := cmdAdd(args, fExec, fKubeClient)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(fExec.addIndex).To(Equal(len(fExec.plugins)))
+		Expect(fKubeClient.PodCount).To(Equal(2))
+		r := result.(*types020.Result)
+		// plugin weave1 is the masterplugin
+		Expect(reflect.DeepEqual(r, expectedResult1)).To(BeTrue())
+
+		os.Setenv("CNI_COMMAND", "DEL")
+		os.Setenv("CNI_IFNAME", "eth0")
+		err = cmdDel(args, fExec, fKubeClient)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(fExec.delIndex).To(Equal(len(fExec.plugins)))
+		Expect(fKubeClient.PodCount).To(Equal(4))
+	})
+
+	It("executes kubernetes default network and additional networks when delegates is absent", func() {
+		fakePod := testhelpers.NewFakePod("testpod", "net1,net2")
+		args := &skel.CmdArgs{
+			ContainerID: "123456789",
+			Netns:       testNS.Path(),
+			Args:        fmt.Sprintf("K8S_POD_NAME=%s;K8S_POD_NAMESPACE=%s", fakePod.ObjectMeta.Name, fakePod.ObjectMeta.Namespace),
+			IfName:      "eth0",
+			StdinData: []byte(`{
+    "name": "node-cni-network",
+	"type": "multus",
+	"kubeconfig": "/etc/kubernetes/node-kubeconfig.yaml"
+}`)}
+		net1 := `{
+	"name": "net1",
+	"type": "mynet",
+	"cniVersion": "0.2.0"
+}`
+		net2 := `{
+	"name": "net2",
+	"type": "mynet2",
+	"cniVersion": "0.2.0"
+}`
+		net3 := `{
+	"name": "net3",
+	"type": "mynet3",
+	"cniVersion": "0.2.0"
+}`
+		fExec := &fakeExec{}
+		expectedResult1 := &types020.Result{
+			CNIVersion: "0.2.0",
+			IP4: &types020.IPConfig{
+				IP: *testhelpers.EnsureCIDR("1.1.1.2/24"),
+			},
+		}
+		expectedConf1 := `{
+    "name": "weave1",
+    "cniVersion": "0.2.0",
+    "type": "weave-net"
+}`
+		fExec.addPlugin(nil, "eth0", expectedConf1, expectedResult1, nil)
+		fExec.addPlugin(nil, "net1", net1, &types020.Result{
+			CNIVersion: "0.2.0",
+			IP4: &types020.IPConfig{
+				IP: *testhelpers.EnsureCIDR("1.1.1.3/24"),
+			},
+		}, nil)
+		fExec.addPlugin(nil, "net2", net2, &types020.Result{
+			CNIVersion: "0.2.0",
+			IP4: &types020.IPConfig{
+				IP: *testhelpers.EnsureCIDR("1.1.1.4/24"),
+			},
+		}, nil)
+
+		fKubeClient := testhelpers.NewFakeKubeClient()
+		fKubeClient.AddPod(fakePod)
+		fKubeClient.AddNetConfig(fakePod.ObjectMeta.Namespace, "weave1", expectedConf1)
+		fKubeClient.AddDefaultNet(fakePod.ObjectMeta.Namespace, "weave1")
+		fKubeClient.AddNetConfig(fakePod.ObjectMeta.Namespace, "net1", net1)
+		fKubeClient.AddNetConfig(fakePod.ObjectMeta.Namespace, "net2", net2)
+		// net3 is not used; make sure it's not accessed
+		fKubeClient.AddNetConfig(fakePod.ObjectMeta.Namespace, "net3", net3)
+
+		os.Setenv("CNI_COMMAND", "ADD")
+		os.Setenv("CNI_IFNAME", "eth0")
+		result, err := cmdAdd(args, fExec, fKubeClient)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(fExec.addIndex).To(Equal(len(fExec.plugins)))
+		Expect(fKubeClient.PodCount).To(Equal(2))
+		Expect(fKubeClient.NetCount).To(Equal(4))
+		r := result.(*types020.Result)
+		// plugin 1 is the masterplugin
+		Expect(reflect.DeepEqual(r, expectedResult1)).To(BeTrue())
+	})
 })

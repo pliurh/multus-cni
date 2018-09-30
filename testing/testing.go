@@ -32,19 +32,24 @@ type FakeKubeClient struct {
 	PodCount int
 	nets     map[string]string
 	NetCount int
+	defaultNet  map[string]string
 }
 
 func NewFakeKubeClient() *FakeKubeClient {
 	return &FakeKubeClient{
 		pods: make(map[string]*v1.Pod),
 		nets: make(map[string]string),
+		defaultNet: make(map[string]string),
 	}
 }
 
 func (f *FakeKubeClient) GetRawWithPath(path string) ([]byte, error) {
 	obj, ok := f.nets[path]
 	if !ok {
-		return nil, fmt.Errorf("resource not found")
+		obj, ok = f.defaultNet[path]
+		if !ok {
+			return nil, fmt.Errorf("resource not found")
+		}
 	}
 	f.NetCount++
 	return []byte(obj), nil
@@ -101,6 +106,23 @@ func (f *FakeKubeClient) UpdatePodStatus(pod *v1.Pod) (*v1.Pod, error) {
 func (f *FakeKubeClient) AddPod(pod *v1.Pod) {
 	key := fmt.Sprintf("%s/%s", pod.ObjectMeta.Namespace, pod.ObjectMeta.Name)
 	f.pods[key] = pod
+}
+
+func (f *FakeKubeClient) AddDefaultNet(namespace, name string) {
+	cr := fmt.Sprintf(`{
+		"apiVersion": "k8s.cni.cncf.io/v1",
+		"kind": "Network",
+		"metadata": {
+		  "name": "default"
+		},
+		"spec": {
+		  "networkAttachmentDefinition": "%s/%s"
+		}
+	  }`, namespace, name)
+	cr = strings.Replace(cr, "\n", "", -1)
+	cr = strings.Replace(cr, "\t", "", -1)
+	key := "/apis/k8s.cni.cncf.io/v1/multus-default-networks/default"
+	f.defaultNet[key] = cr
 }
 
 func NewFakePod(name string, netAnnotation string) *v1.Pod {

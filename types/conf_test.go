@@ -62,23 +62,4 @@ var _ = Describe("config operations", func() {
 		Expect(netConf.Delegates[1].Conf.Type).To(Equal("foobar"))
 		Expect(netConf.Delegates[1].MasterPlugin).To(BeFalse())
 	})
-
-	It("fails if no kubeconfig or delegates are set", func() {
-		conf := `{
-    "name": "node-cni-network",
-    "type": "multus"
-}`
-		_, err := LoadNetConf([]byte(conf))
-		Expect(err).To(HaveOccurred())
-	})
-
-	It("fails if kubeconfig is present but no delegates are set", func() {
-		conf := `{
-    "name": "node-cni-network",
-    "type": "multus",
-    "kubeconfig": "/etc/kubernetes/node-kubeconfig.yaml"
-}`
-		_, err := LoadNetConf([]byte(conf))
-		Expect(err).To(HaveOccurred())
-	})
 })

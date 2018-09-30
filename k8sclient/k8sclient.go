@@ -473,3 +473,79 @@ func GetK8sNetwork(k8sclient KubeClient, k8sArgs *types.K8sArgs, confdir string)
 
 	return delegates, nil
 }
+
+// TryLoadK8sClusterDefaultNetwork attempts to load Kubernetes-defined default network and add it to the Multus config.
+func TryLoadK8sClusterDefaultNetwork(k8sArgs *types.K8sArgs, conf *types.NetConf, kubeClient KubeClient) (*clientInfo, error) {
+	var err error
+	clientInfo := &clientInfo{}
+
+	logging.Debugf("TryLoadK8sClusterDefaultNetwork: %v, %v, %v", k8sArgs, conf, kubeClient)
+	kubeClient, err = GetK8sClient(conf.Kubeconfig, kubeClient)
+	if err != nil {
+		return nil, err
+	}
+	if kubeClient == nil {
+		return nil, logging.Errorf("TryLoadK8sClusterDefaultNetwork: failed getting k8sclient context")
+	}
+
+	setKubeClientInfo(clientInfo, kubeClient, k8sArgs)
+
+	delegate, err := GetK8sDefaultNetwork(kubeClient, k8sArgs, conf.ConfDir)
+
+	if err != nil {
+		if _, ok := err.(*NoK8sNetworkError); ok {
+			return clientInfo, nil
+		}
+		return nil, logging.Errorf("TryLoadK8sClusterDefaultNetwork: Err in getting k8s network from pod: %v", err)
+	}
+
+	if err = conf.AddDelegates(delegate); err != nil {
+		return nil, err
+	}
+
+	return clientInfo, nil
+}
+
+// GetK8sDefaultNetwork get cluster default network from CRD object
+func GetK8sDefaultNetwork(k8sclient KubeClient, k8sArgs *types.K8sArgs, confdir string) ([]*types.DelegateNetConf, error) {
+	logging.Debugf("GetK8sDefaultNetwork: %v, %v, %v", k8sclient, k8sArgs, confdir)
+	rawPath := "/apis/k8s.cni.cncf.io/v1/multus-default-networks/default"
+	netData, err := k8sclient.GetRawWithPath(rawPath)
+	if err != nil {
+		return nil, logging.Errorf("GetK8sDefaultNetwork: failed to get the cluster default network resource: %v", err)
+	}
+	logging.Debugf("GetK8sDefaultNetwork: netData=%s", netData)
+
+	customResource := &types.MultusDefaultNetwork{}
+	if err := json.Unmarshal(netData, customResource); err != nil {
+		return nil, logging.Errorf("GetK8sDefaultNetwork: failed to get the cluster default network name: %v", err)
+	}
+
+	network := customResource.Spec.NetworkAttachmentDefinition
+	// Remove leading and trailing whitespace.
+	network = strings.TrimSpace(network)
+
+	// Parse network name (i.e. <namespace>/<network name>@<ifname>)
+	netNsName, networkName, netIfName, err := parsePodNetworkObjectName(network)
+	if err != nil {
+		return nil, logging.Errorf("GetK8sDefaultNetwork: failed to parse the default network object: %v", err)
+	}
+
+	defaultNetwork := types.NetworkSelectionElement{
+		Name:             networkName,
+		Namespace:        netNsName,
+		InterfaceRequest: netIfName,
+	}
+
+	// Read default network object referenced
+	delegate, err := getKubernetesDelegate(k8sclient, &defaultNetwork, confdir)
+	if err != nil {
+		return nil, logging.Errorf("GetK8sDefaultNetwork: failed getting the delegate: %v", err)
+	}
+	delegate.MasterPlugin=true
+
+	var delegates []*types.DelegateNetConf
+	delegates = append(delegates, delegate)
+
+	return delegates, nil
+}

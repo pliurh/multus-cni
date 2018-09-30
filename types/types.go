@@ -91,6 +91,21 @@ type NetworkAttachmentDefinitionSpec struct {
 	Config string `json:"config"`
 }
 
+type MultusDefaultNetwork struct {
+	metav1.TypeMeta `json:",inline"`
+	// Note that ObjectMeta is mandatory, as an object
+	// name is required
+	Metadata metav1.ObjectMeta `json:"metadata,omitempty" description:"standard object metadata"`
+
+	// Specification describing the default cluster network
+	Spec MultusDefaultNetworkSpec `json:"spec"`
+}
+
+type MultusDefaultNetworkSpec struct {
+	// Config contains the name of the default network CRD object
+	NetworkAttachmentDefinition string `json:"networkAttachmentDefinition"`
+}
+
 // NetworkSelectionElement represents one element of the JSON format
 // Network Attachment Selection Annotation as described in section 4.1.2
 // of the CRD specification.
